@@ -46,3 +46,4 @@ app-example
 .env.local
 node_modules/
 .expo/
+.vscode/
