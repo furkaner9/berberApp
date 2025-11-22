@@ -1,60 +1,98 @@
 import React, { useState } from 'react';
-import { StyleSheet, Text, View, TextInput, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { StyleSheet, Text, View, TextInput, TouchableOpacity, Alert, ActivityIndicator, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
-import { createUserWithEmailAndPassword } from 'firebase/auth'; // Firebase'in kayıt fonksiyonu
-import { auth } from '../firebaseConfig'; // Bizim ayar dosyamız
+import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
+import { doc, setDoc } from 'firebase/firestore'; // Veritabanı kaydı için
+import { auth, db } from '../firebaseConfig';
 
 export default function RegisterScreen() {
   const router = useRouter();
   
-  // Kullanıcının yazdığı verileri tutmak için State'ler
+  // Form State'leri
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false); // Yükleniyor animasyonu için
+  const [loading, setLoading] = useState(false);
 
   const handleRegister = async () => {
-    // 1. Basit kontrol: Alanlar dolu mu?
-    if (email === '' || password === '') {
-      Alert.alert('Hata', 'Lütfen e-posta ve şifre giriniz.');
+    // 1. Boş alan kontrolü
+    if (name === '' || phone === '' || email === '' || password === '') {
+      Alert.alert('Eksik Bilgi', 'Lütfen tüm alanları doldurunuz.');
       return;
     }
 
-    setLoading(true); // Yükleniyor çarkını döndür
+    setLoading(true);
 
     try {
-      // 2. FIREBASE İŞLEMİ: Kullanıcıyı oluştur
-      await createUserWithEmailAndPassword(auth, email, password);
+      // 2. FIREBASE AUTH: Kullanıcıyı oluştur
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+
+      // 3. FIREBASE AUTH: Görünen İsmi (Display Name) güncelle
+      await updateProfile(user, {
+        displayName: name
+      });
+
+      // 4. FIRESTORE: Kullanıcı detaylarını veritabanına kaydet
+      // "users" koleksiyonunda, kullanıcının kendi ID'si ile bir belge açıyoruz.
+      await setDoc(doc(db, "users", user.uid), {
+        uid: user.uid,
+        fullName: name,
+        phoneNumber: phone,
+        email: email,
+        createdAt: new Date(),
+        role: 'customer' // İleride berber/müşteri ayrımı için lazım olabilir
+      });
       
       Alert.alert('Tebrikler!', 'Hesabınız başarıyla oluşturuldu.');
-      
-      // 3. Başarılıysa Ana Sayfaya (Tabs) yönlendir ve geri gelmesini engelle (replace)
       router.replace('/(tabs)'); 
       
     } catch (error: any) {
-      // Hata varsa kullanıcıya göster (Örn: Şifre çok kısa, mail hatalı vb.)
       Alert.alert('Kayıt Başarısız', error.message);
     } finally {
-      setLoading(false); // Çarkı durdur
+      setLoading(false);
     }
   };
 
   return (
-    <View style={styles.container}>
+    <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
       <Text style={styles.title}>Aramıza Katıl ✂️</Text>
       <Text style={styles.subtitle}>Randevu almak için hesap oluşturun.</Text>
 
       <View style={styles.inputContainer}>
+        {/* Ad Soyad */}
+        <TextInput 
+          placeholder="Ad Soyad" 
+          style={styles.input} 
+          value={name}
+          onChangeText={setName}
+        />
+
+        {/* Telefon */}
+        <TextInput 
+          placeholder="Telefon Numarası (05...)" 
+          style={styles.input} 
+          keyboardType="phone-pad" // Sadece rakam klavyesi aç
+          value={phone}
+          onChangeText={setPhone}
+        />
+
+        {/* E-posta */}
         <TextInput 
           placeholder="E-posta Adresi" 
           style={styles.input} 
-          autoCapitalize="none" // Otomatik baş harf büyütmeyi kapat (Mail için önemli)
+          autoCapitalize="none"
+          keyboardType="email-address"
           value={email}
           onChangeText={setEmail}
         />
+
+        {/* Şifre */}
         <TextInput 
           placeholder="Şifre (En az 6 karakter)" 
           style={styles.input} 
-          secureTextEntry // Şifreyi gizle (***)
+          secureTextEntry 
           value={password}
           onChangeText={setPassword}
         />
@@ -71,18 +109,18 @@ export default function RegisterScreen() {
       <TouchableOpacity style={styles.linkButton} onPress={() => router.back()}>
         <Text style={styles.linkText}>Zaten hesabın var mı? Giriş Yap</Text>
       </TouchableOpacity>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f5f5f5', padding: 20 },
-  title: { fontSize: 32, fontWeight: 'bold', color: '#333', marginBottom: 10 },
-  subtitle: { fontSize: 16, color: '#666', marginBottom: 40 },
+  container: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f5f5f5', padding: 20 },
+  title: { fontSize: 32, fontWeight: 'bold', color: '#333', marginBottom: 10, marginTop: 50 },
+  subtitle: { fontSize: 16, color: '#666', marginBottom: 30 },
   inputContainer: { width: '100%', marginBottom: 20 },
   input: { backgroundColor: '#fff', padding: 15, borderRadius: 10, marginBottom: 15, borderWidth: 1, borderColor: '#ddd' },
   button: { backgroundColor: '#333', padding: 15, borderRadius: 10, width: '100%', alignItems: 'center' },
   buttonText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
-  linkButton: { marginTop: 20 },
+  linkButton: { marginTop: 20, marginBottom: 50 },
   linkText: { color: '#333', fontWeight: '600' },
 });

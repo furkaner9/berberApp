@@ -3,15 +3,31 @@ import { StyleSheet, Text, View, Image, TouchableOpacity, ScrollView, Alert, Act
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { collection, addDoc } from 'firebase/firestore'; 
 import { auth, db } from '../firebaseConfig';
+import { Ionicons } from '@expo/vector-icons';
 
-// TİP TANIMI
+// TİP TANIMLARI
 interface DayType {
   id: number;
-  name: string; // Örn: Pzt
-  day: string;  // Örn: 24
-  fullDate: string; // Örn: 24 Ekim 2025
-  rawDate: Date; // Sıralama için ham tarih verisi
+  name: string;
+  day: string;
+  fullDate: string;
+  rawDate: Date;
 }
+
+interface Service {
+  id: string;
+  name: string;
+  price: number;
+  duration: number; // Dakika cinsinden süre
+}
+
+// Şimdilik her berberde aynı hizmetler varmış gibi yapıyoruz
+const SERVICES: Service[] = [
+  { id: '1', name: 'Saç Kesimi', price: 200, duration: 30 },
+  { id: '2', name: 'Sakal Kesimi', price: 100, duration: 15 },
+  { id: '3', name: 'Saç Yıkama & Fön', price: 80, duration: 15 },
+  { id: '4', name: 'Cilt Bakımı', price: 150, duration: 30 },
+];
 
 export default function DetailScreen() {
   const router = useRouter();
@@ -27,86 +43,100 @@ export default function DetailScreen() {
 
   const [selectedDay, setSelectedDay] = useState<DayType | null>(null);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
+  const [selectedServices, setSelectedServices] = useState<string[]>([]); // Seçilen hizmetlerin ID'leri
   const [loading, setLoading] = useState(false);
-  
-  // Dinamik Tarihleri Tutacak State
   const [days, setDays] = useState<DayType[]>([]);
 
-  // Saatler (Sabit kalabilir veya berbere göre değişebilir)
   const HOURS = ['09:00', '10:00', '11:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00'];
 
-  // Sayfa açılınca tarihleri hesapla
   useEffect(() => {
-    const nextDays = generateNextDays();
-    setDays(nextDays);
+    setDays(generateNextDays());
   }, []);
 
-  // --- AKILLI TARİH OLUŞTURUCU ---
   const generateNextDays = (): DayType[] => {
     const daysArray: DayType[] = [];
     const today = new Date();
-
-    // Önümüzdeki 7 günü hesapla
     for (let i = 0; i < 7; i++) {
       const nextDate = new Date(today);
-      nextDate.setDate(today.getDate() + i + 1); // Bugüne i+1 ekle (Yarından başla)
-
-      // Türkçe gün ismi (Pzt, Sal...)
+      nextDate.setDate(today.getDate() + i + 1);
       const dayName = new Intl.DateTimeFormat('tr-TR', { weekday: 'short' }).format(nextDate);
-      // Gün numarası (24, 25...)
       const dayNumber = nextDate.getDate().toString();
-      // Tam Tarih (Ay ismiyle beraber)
       const fullDateStr = new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' }).format(nextDate);
 
       daysArray.push({
         id: i,
-        name: dayName, // Pzt
-        day: dayNumber, // 24
-        fullDate: fullDateStr, // 24 Ekim 2025
+        name: dayName,
+        day: dayNumber,
+        fullDate: fullDateStr,
         rawDate: nextDate
       });
     }
     return daysArray;
   };
 
+  // HİZMET SEÇME/KALDIRMA MANTIĞI
+  const toggleService = (serviceId: string) => {
+    if (selectedServices.includes(serviceId)) {
+      // Zaten seçiliyse çıkar
+      setSelectedServices(prev => prev.filter(id => id !== serviceId));
+    } else {
+      // Seçili değilse ekle
+      setSelectedServices(prev => [...prev, serviceId]);
+    }
+  };
+
+  // TOPLAM TUTARI HESAPLA
+  const totalPrice = selectedServices.reduce((total, serviceId) => {
+    const service = SERVICES.find(s => s.id === serviceId);
+    return total + (service ? service.price : 0);
+  }, 0);
+
   const handleBooking = async () => {
     if (!selectedDay || !selectedTime) {
-      Alert.alert("Eksik Bilgi", "Lütfen önce bir tarih ve saat seçin.");
+      Alert.alert("Eksik Bilgi", "Lütfen tarih ve saat seçin.");
+      return;
+    }
+    if (selectedServices.length === 0) {
+      Alert.alert("Eksik Bilgi", "Lütfen en az bir hizmet seçin.");
       return;
     }
 
     const user = auth.currentUser; 
     if (!user) {
-      Alert.alert("Hata", "Randevu almak için giriş yapmalısınız.");
+      Alert.alert("Hata", "Giriş yapmalısınız.");
       return;
     }
 
     setLoading(true); 
 
     try {
+      // Seçilen hizmetlerin isimlerini alalım
+      const serviceNames = selectedServices.map(id => SERVICES.find(s => s.id === id)?.name).join(", ");
+
       const randevuVerisi = {
         userId: user.uid,          
         userEmail: user.email,     
         berberId: item.id,         
         berberName: item.name,     
-        // ARTIK TAM TARİHİ KAYDEDİYORUZ 👇
         date: selectedDay.fullDate, 
-        dayName: selectedDay.name, // Hangi gün olduğu (Pzt vb.)
-        time: selectedTime,        
+        time: selectedTime,
+        services: serviceNames, // Örn: "Saç Kesimi, Sakal Kesimi"
+        totalPrice: totalPrice, // Örn: 300
+        status: 'pending',
         createdAt: new Date()      
       };
 
       await addDoc(collection(db, "randevular"), randevuVerisi);
 
       Alert.alert(
-        "Başarılı! 🎉", 
-        `Randevunuz ${selectedDay.fullDate} saat ${selectedTime} için oluşturuldu.`,
-        [{ text: "Tamam", onPress: () => router.push('/(tabs)') }] 
+        "Randevu Oluşturuldu! 🎉", 
+        `Tutar: ${totalPrice} TL\nHizmetler: ${serviceNames}`,
+        [{ text: "Süper", onPress: () => router.push('/(tabs)') }] 
       );
 
     } catch (error) {
       console.error("Randevu hatası:", error);
-      Alert.alert("Hata", "Randevu oluşturulurken bir sorun çıktı.");
+      Alert.alert("Hata", "Sorun oluştu.");
     } finally {
       setLoading(false); 
     }
@@ -126,7 +156,29 @@ export default function DetailScreen() {
           </View>
           <Text style={styles.location}>📍 {item.location}</Text>
 
-          {/* --- TARİH SEÇİMİ (Dinamik Liste) --- */}
+          {/* --- HİZMET SEÇİMİ --- */}
+          <Text style={styles.sectionTitle}>Hizmet Seç</Text>
+          <View style={styles.servicesContainer}>
+            {SERVICES.map((service) => {
+              const isSelected = selectedServices.includes(service.id);
+              return (
+                <TouchableOpacity 
+                  key={service.id} 
+                  style={[styles.serviceCard, isSelected && styles.selectedServiceCard]}
+                  onPress={() => toggleService(service.id)}
+                >
+                  <View>
+                    <Text style={[styles.serviceName, isSelected && styles.selectedText]}>{service.name}</Text>
+                    <Text style={[styles.serviceDuration, isSelected && styles.selectedText]}>{service.duration} dk</Text>
+                  </View>
+                  <Text style={[styles.servicePrice, isSelected && styles.selectedText]}>{service.price} ₺</Text>
+                  {isSelected && <Ionicons name="checkmark-circle" size={20} color="#fff" style={{position: 'absolute', top: 5, right: 5}} />}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {/* --- TARİH & SAAT --- */}
           <Text style={styles.sectionTitle}>Tarih Seç</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.daysScroll}>
             {days.map((dayItem) => {
@@ -162,16 +214,22 @@ export default function DetailScreen() {
         </View>
       </ScrollView>
 
+      {/* --- ALT BUTON --- */}
       <View style={styles.footer}>
+        <View style={styles.priceContainer}>
+          <Text style={styles.priceLabel}>Toplam Tutar</Text>
+          <Text style={styles.totalPrice}>{totalPrice} ₺</Text>
+        </View>
+
         <TouchableOpacity 
-          style={[styles.bookButton, (!selectedDay || !selectedTime) && styles.disabledButton]} 
+          style={[styles.bookButton, (totalPrice === 0 || !selectedDay || !selectedTime) && styles.disabledButton]} 
           onPress={handleBooking}
           disabled={loading} 
         >
           {loading ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.bookButtonText}>Randevuyu Onayla</Text>
+            <Text style={styles.bookButtonText}>Onayla ve Bitir</Text>
           )}
         </TouchableOpacity>
       </View>
@@ -189,6 +247,19 @@ const styles = StyleSheet.create({
   ratingText: { color: '#fbc02d', fontWeight: 'bold' },
   location: { fontSize: 16, color: '#666', marginTop: 5, marginBottom: 20 },
   sectionTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 10, marginTop: 10, color: '#333' },
+  
+  // Hizmet Kartları
+  servicesContainer: { gap: 10, marginBottom: 20 },
+  serviceCard: { 
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#eee', backgroundColor: '#fff'
+  },
+  selectedServiceCard: { backgroundColor: '#333', borderColor: '#333' },
+  serviceName: { fontSize: 16, fontWeight: 'bold', color: '#333' },
+  serviceDuration: { fontSize: 12, color: '#666', marginTop: 2 },
+  servicePrice: { fontSize: 16, fontWeight: 'bold', color: '#4CAF50' },
+  
+  // Tarih & Saat
   daysScroll: { marginBottom: 20 },
   dayCard: { width: 60, height: 70, borderRadius: 12, backgroundColor: '#f0f0f0', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   selectedDayCard: { backgroundColor: '#333' },
@@ -199,8 +270,19 @@ const styles = StyleSheet.create({
   timeCard: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: 20, borderWidth: 1, borderColor: '#ddd', backgroundColor: '#fff' },
   selectedTimeCard: { backgroundColor: '#333', borderColor: '#333' },
   timeText: { color: '#333' },
-  footer: { padding: 20, borderTopWidth: 1, borderTopColor: '#eee', backgroundColor: '#fff' },
-  bookButton: { backgroundColor: '#333', padding: 15, borderRadius: 10, alignItems: 'center' },
+  
+  // Footer
+  footer: { 
+    padding: 20, borderTopWidth: 1, borderTopColor: '#eee', backgroundColor: '#fff',
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'
+  },
+  priceContainer: { flexDirection: 'column' },
+  priceLabel: { fontSize: 12, color: '#666' },
+  totalPrice: { fontSize: 24, fontWeight: 'bold', color: '#333' },
+
+  bookButton: { 
+    backgroundColor: '#333', paddingVertical: 15, paddingHorizontal: 30, borderRadius: 10, alignItems: 'center' 
+  },
   disabledButton: { backgroundColor: '#ccc' },
-  bookButtonText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+  bookButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
 });
