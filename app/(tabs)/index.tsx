@@ -1,10 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, View, FlatList, Image, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { StyleSheet, Text, View, FlatList, Image, TouchableOpacity, ActivityIndicator, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
-import { signOut } from 'firebase/auth';
-// Firestore fonksiyonlarını ekledik 👇
 import { collection, getDocs } from 'firebase/firestore'; 
-import { auth, db } from '../../firebaseConfig'; // db'yi import etmeyi unutma!
+import { db } from '../../firebaseConfig';
+import { Ionicons } from '@expo/vector-icons'; // Büyüteç ikonu için
 
 // 1. TİP TANIMI
 interface Berber {
@@ -18,49 +17,39 @@ interface Berber {
 export default function HomeScreen() {
   const router = useRouter();
   
-  // Verileri ve Yüklenme Durumunu tutacak State'ler
   const [berberler, setBerberler] = useState<Berber[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchText, setSearchText] = useState(''); // Arama metni için State
 
-  // Sayfa açıldığında çalışacak fonksiyon
   useEffect(() => {
     fetchBerberler();
   }, []);
 
-  // --- FIREBASE'DEN VERİ ÇEKME FONKSİYONU ---
   const fetchBerberler = async () => {
     try {
-      // "berberler" koleksiyonuna git ve tüm belgeleri al
       const querySnapshot = await getDocs(collection(db, "berberler"));
-      
       const fetchedData: Berber[] = [];
       
       querySnapshot.forEach((doc) => {
-        // Gelen veriyi bizim formatımıza çevirip listeye ekle
-        // doc.data() -> { name: '...', location: '...' } verir
-        // doc.id -> Firestore'un verdiği karmaşık ID'yi verir
         fetchedData.push({
           id: doc.id,
           ...doc.data()
         } as Berber);
       });
 
-      setBerberler(fetchedData); // State'i güncelle
+      setBerberler(fetchedData); 
     } catch (error) {
       console.error("Veri çekme hatası:", error);
     } finally {
-      setLoading(false); // Yükleme bitti
+      setLoading(false); 
     }
   };
 
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      router.replace('/login' as any);
-    } catch (error) {
-      console.error("Çıkış hatası:", error);
-    }
-  };
+  // --- FİLTRELEME MANTIĞI ---
+  const filteredBerberler = berberler.filter(berber => {
+    // Hem berber ismini hem aranan metni küçük harfe çevirip karşılaştır
+    return berber.name.toLowerCase().includes(searchText.toLowerCase());
+  });
 
   const renderBerberItem = ({ item }: { item: Berber }) => (
     <TouchableOpacity 
@@ -89,7 +78,6 @@ export default function HomeScreen() {
     </TouchableOpacity>
   );
 
-  // Yükleniyor durumunda dönen çark göster
   if (loading) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
@@ -103,23 +91,33 @@ export default function HomeScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>StilRandevu ✂️</Text>
-        <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
-          <Text style={styles.logoutText}>Çıkış Yap</Text>
-        </TouchableOpacity>
       </View>
 
-      {/* Eğer liste boşsa kullanıcıya bilgi ver */}
-      {berberler.length === 0 ? (
+      {/* --- ARAMA ÇUBUĞU --- */}
+      <View style={styles.searchContainer}>
+        <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
+        <TextInput
+          placeholder="Berber veya kuaför ara..."
+          style={styles.searchInput}
+          value={searchText}
+          onChangeText={setSearchText} // Her harfte state'i güncelle
+          placeholderTextColor="#999"
+        />
+      </View>
+      {/* -------------------- */}
+
+      {filteredBerberler.length === 0 ? (
         <View style={{ alignItems: 'center', marginTop: 50 }}>
-          <Text>Henüz kayıtlı berber yok.</Text>
+          <Text style={{ color: '#666' }}>
+            {searchText ? `"${searchText}" aramasına uygun sonuç yok.` : 'Henüz kayıtlı berber yok.'}
+          </Text>
         </View>
       ) : (
         <FlatList
-          data={berberler} // Artık State'teki veriyi kullanıyoruz
+          data={filteredBerberler} // DİKKAT: Artık filtrelenmiş listeyi veriyoruz
           renderItem={renderBerberItem}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContainer}
-          // Listeyi aşağı çekince yenileme özelliği (Pull to Refresh)
           refreshing={loading}
           onRefresh={fetchBerberler}
         />
@@ -132,11 +130,26 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f5' },
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: 20, paddingTop: 50, paddingBottom: 20, backgroundColor: '#fff',
+    paddingHorizontal: 20, paddingTop: 50, paddingBottom: 10, backgroundColor: '#fff',
   },
   headerTitle: { fontSize: 22, fontWeight: 'bold', color: '#333' },
-  logoutButton: { backgroundColor: '#ff4444', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8 },
-  logoutText: { color: '#fff', fontWeight: 'bold', fontSize: 14 },
+  
+  // Arama Çubuğu Stilleri
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    marginHorizontal: 20,
+    marginVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#eee',
+    height: 50,
+  },
+  searchIcon: { marginRight: 10 },
+  searchInput: { flex: 1, height: '100%', fontSize: 16, color: '#333' },
+
   listContainer: { padding: 10 },
   card: {
     backgroundColor: '#fff', borderRadius: 15, marginBottom: 15, flexDirection: 'row',

@@ -1,23 +1,24 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, Image, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { collection, addDoc } from 'firebase/firestore'; // Veri ekleme fonksiyonları
-import { auth, db } from '../firebaseConfig'; // Ayar dosyamız
+import { collection, addDoc } from 'firebase/firestore'; 
+import { auth, db } from '../firebaseConfig';
 
 // TİP TANIMI
 interface DayType {
   id: number;
-  name: string;
-  day: string;
+  name: string; // Örn: Pzt
+  day: string;  // Örn: 24
+  fullDate: string; // Örn: 24 Ekim 2025
+  rawDate: Date; // Sıralama için ham tarih verisi
 }
 
 export default function DetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   
-  // Gelen parametreleri al
   const item = {
-    id: params.id as string, // Berberin ID'si veritabanı için çok önemli
+    id: params.id as string, 
     name: params.name as string,
     image: params.image as string,
     rating: params.rating as string,
@@ -26,59 +27,88 @@ export default function DetailScreen() {
 
   const [selectedDay, setSelectedDay] = useState<DayType | null>(null);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false); // Buton dönsün diye
+  const [loading, setLoading] = useState(false);
+  
+  // Dinamik Tarihleri Tutacak State
+  const [days, setDays] = useState<DayType[]>([]);
 
-  const DAYS: DayType[] = [
-    { id: 1, name: 'Pzt', day: '24' },
-    { id: 2, name: 'Sal', day: '25' },
-    { id: 3, name: 'Çar', day: '26' },
-  ];
+  // Saatler (Sabit kalabilir veya berbere göre değişebilir)
+  const HOURS = ['09:00', '10:00', '11:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00'];
 
-  const HOURS = ['09:00', '10:00', '11:00', '14:00', '15:00', '16:00', '17:00'];
+  // Sayfa açılınca tarihleri hesapla
+  useEffect(() => {
+    const nextDays = generateNextDays();
+    setDays(nextDays);
+  }, []);
 
-  // --- RANDEVU KAYDETME FONKSİYONU ---
+  // --- AKILLI TARİH OLUŞTURUCU ---
+  const generateNextDays = (): DayType[] => {
+    const daysArray: DayType[] = [];
+    const today = new Date();
+
+    // Önümüzdeki 7 günü hesapla
+    for (let i = 0; i < 7; i++) {
+      const nextDate = new Date(today);
+      nextDate.setDate(today.getDate() + i + 1); // Bugüne i+1 ekle (Yarından başla)
+
+      // Türkçe gün ismi (Pzt, Sal...)
+      const dayName = new Intl.DateTimeFormat('tr-TR', { weekday: 'short' }).format(nextDate);
+      // Gün numarası (24, 25...)
+      const dayNumber = nextDate.getDate().toString();
+      // Tam Tarih (Ay ismiyle beraber)
+      const fullDateStr = new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' }).format(nextDate);
+
+      daysArray.push({
+        id: i,
+        name: dayName, // Pzt
+        day: dayNumber, // 24
+        fullDate: fullDateStr, // 24 Ekim 2025
+        rawDate: nextDate
+      });
+    }
+    return daysArray;
+  };
+
   const handleBooking = async () => {
-    // 1. Kontroller
     if (!selectedDay || !selectedTime) {
       Alert.alert("Eksik Bilgi", "Lütfen önce bir tarih ve saat seçin.");
       return;
     }
 
-    const user = auth.currentUser; // O anki kullanıcı kim?
+    const user = auth.currentUser; 
     if (!user) {
       Alert.alert("Hata", "Randevu almak için giriş yapmalısınız.");
       return;
     }
 
-    setLoading(true); // Yükleniyor başlat
+    setLoading(true); 
 
     try {
-      // 2. Veritabanına Eklenecek Veriyi Hazırla
       const randevuVerisi = {
-        userId: user.uid,          // Randevuyu alan kişi (Gizli ID)
-        userEmail: user.email,     // Randevuyu alan kişinin maili
-        berberId: item.id,         // Hangi berber?
-        berberName: item.name,     // Berberin adı
-        date: `${selectedDay.day} Ekim ${selectedDay.name}`, // Hangi gün
-        time: selectedTime,        // Hangi saat
-        createdAt: new Date()      // İşlem ne zaman yapıldı?
+        userId: user.uid,          
+        userEmail: user.email,     
+        berberId: item.id,         
+        berberName: item.name,     
+        // ARTIK TAM TARİHİ KAYDEDİYORUZ 👇
+        date: selectedDay.fullDate, 
+        dayName: selectedDay.name, // Hangi gün olduğu (Pzt vb.)
+        time: selectedTime,        
+        createdAt: new Date()      
       };
 
-      // 3. Firestore'da "randevular" koleksiyonuna ekle
       await addDoc(collection(db, "randevular"), randevuVerisi);
 
-      // 4. Başarılı ise uyar ve anasayfaya dön
       Alert.alert(
         "Başarılı! 🎉", 
-        "Randevunuz oluşturuldu. Berberiniz sizi bekliyor.",
-        [{ text: "Tamam", onPress: () => router.push('/(tabs)') }] // Tamam'a basınca anasayfaya git
+        `Randevunuz ${selectedDay.fullDate} saat ${selectedTime} için oluşturuldu.`,
+        [{ text: "Tamam", onPress: () => router.push('/(tabs)') }] 
       );
 
     } catch (error) {
       console.error("Randevu hatası:", error);
       Alert.alert("Hata", "Randevu oluşturulurken bir sorun çıktı.");
     } finally {
-      setLoading(false); // Yükleniyor durdur
+      setLoading(false); 
     }
   };
 
@@ -96,9 +126,10 @@ export default function DetailScreen() {
           </View>
           <Text style={styles.location}>📍 {item.location}</Text>
 
+          {/* --- TARİH SEÇİMİ (Dinamik Liste) --- */}
           <Text style={styles.sectionTitle}>Tarih Seç</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.daysScroll}>
-            {DAYS.map((dayItem) => {
+            {days.map((dayItem) => {
               const isSelected = selectedDay?.id === dayItem.id;
               return (
                 <TouchableOpacity 
@@ -135,7 +166,7 @@ export default function DetailScreen() {
         <TouchableOpacity 
           style={[styles.bookButton, (!selectedDay || !selectedTime) && styles.disabledButton]} 
           onPress={handleBooking}
-          disabled={loading} // Yüklenirken tekrar basılmasın
+          disabled={loading} 
         >
           {loading ? (
             <ActivityIndicator color="#fff" />
