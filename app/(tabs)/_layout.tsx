@@ -1,48 +1,88 @@
 import { Tabs } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons'; // İkon kütüphanesi
+import { Ionicons } from '@expo/vector-icons';
+import { View } from 'react-native';
 
 export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        headerShown: false, // Üstteki varsayılan başlığı gizle
-        tabBarActiveTintColor: '#333', // Aktif sekme rengi (Siyah)
-        tabBarInactiveTintColor: '#999', // Pasif sekme rengi (Gri)
+        headerShown: false,
+        tabBarActiveTintColor: '#333',
+        tabBarInactiveTintColor: '#999',
+        tabBarShowLabel: false, // Yazıları gizle, sadece ikon olsun
         tabBarStyle: {
-          paddingBottom: 5,
-          height: 60,
+          position: 'absolute',
+          bottom: 20,
+          left: 20,
+          right: 20,
+          elevation: 5,
+          backgroundColor: '#fff',
+          borderRadius: 20,
+          height: 70,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 5 },
+          shadowOpacity: 0.1,
+          shadowRadius: 5,
         }
       }}
     >
-      {/* ANA SAYFA SEKMESİ */}
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Ana Sayfa',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="home" size={size} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? "home" : "home-outline"} size={26} color={color} />
           ),
         }}
       />
 
-      {/* RANDEVULARIM SEKMESİ */}
+      {/* ORTA BUTON (En Yakını Bul) */}
       <Tabs.Screen
-        name="randevularim"
+        name="nearby"
         options={{
-          title: 'Randevularım',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="calendar" size={size} color={color} />
+          tabBarIcon: ({ focused }) => (
+            <View style={{
+              top: -20, // Yukarı taşır
+              width: 60,
+              height: 60,
+              borderRadius: 30,
+              backgroundColor: '#333',
+              justifyContent: 'center',
+              alignItems: 'center',
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 5 },
+              shadowOpacity: 0.3,
+              shadowRadius: 5,
+              elevation: 5
+            }}>
+              <Ionicons name="navigate" size={28} color="#fff" />
+            </View>
           ),
         }}
       />
-      {/* PROFİL SEKMESİ (Bunu en sona ekle) */}
+
+      <Tabs.Screen
+        name="randevularim"
+        options={{
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? "calendar" : "calendar-outline"} size={26} color={color} />
+          ),
+        }}
+      />
+
       <Tabs.Screen
         name="profil"
         options={{
-          title: 'Profilim',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person" size={size} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? "person" : "person-outline"} size={26} color={color} />
           ),
+        }}
+      />
+      
+      {/* Gizli Berber Paneli (Menüde görünmesin ama erişilebilsin) */}
+       <Tabs.Screen
+        name="berber-panel" // Bu dosya varsa ekle yoksa hata verebilir, varsa ekle
+        options={{
+          href: null, // Menüde gizle
         }}
       />
     </Tabs>

@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, Image, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { collection, addDoc } from 'firebase/firestore'; 
+// getDocs fonksiyonunu ekledik 👇
+import { collection, addDoc, getDocs } from 'firebase/firestore'; 
 import { auth, db } from '../firebaseConfig';
 import { Ionicons } from '@expo/vector-icons';
 
-// TİP TANIMLARI
 interface DayType {
   id: number;
   name: string;
@@ -14,20 +14,13 @@ interface DayType {
   rawDate: Date;
 }
 
+// Veritabanından gelecek hizmet tipi
 interface Service {
   id: string;
   name: string;
   price: number;
-  duration: number; // Dakika cinsinden süre
+  duration: number;
 }
-
-// Şimdilik her berberde aynı hizmetler varmış gibi yapıyoruz
-const SERVICES: Service[] = [
-  { id: '1', name: 'Saç Kesimi', price: 200, duration: 30 },
-  { id: '2', name: 'Sakal Kesimi', price: 100, duration: 15 },
-  { id: '3', name: 'Saç Yıkama & Fön', price: 80, duration: 15 },
-  { id: '4', name: 'Cilt Bakımı', price: 150, duration: 30 },
-];
 
 export default function DetailScreen() {
   const router = useRouter();
@@ -43,15 +36,43 @@ export default function DetailScreen() {
 
   const [selectedDay, setSelectedDay] = useState<DayType | null>(null);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
-  const [selectedServices, setSelectedServices] = useState<string[]>([]); // Seçilen hizmetlerin ID'leri
-  const [loading, setLoading] = useState(false);
+  const [selectedServices, setSelectedServices] = useState<string[]>([]); 
+  const [loading, setLoading] = useState(false); // Randevu butonu için
+  const [servicesLoading, setServicesLoading] = useState(true); // Hizmetleri çekerken dönecek
+  
+  // ARTIK HİZMETLERİ STATE İÇİNDE TUTUYORUZ (SABİT DEĞİL)
+  const [services, setServices] = useState<Service[]>([]);
   const [days, setDays] = useState<DayType[]>([]);
 
   const HOURS = ['09:00', '10:00', '11:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00'];
 
   useEffect(() => {
     setDays(generateNextDays());
+    fetchServices(); // Sayfa açılınca hizmetleri çek
   }, []);
+
+  // --- HİZMETLERİ VERİTABANINDAN ÇEKME ---
+  const fetchServices = async () => {
+    try {
+      // Yol: berberler -> (Şu anki Berber ID) -> services
+      const servicesRef = collection(db, "berberler", item.id, "services");
+      const querySnapshot = await getDocs(servicesRef);
+      
+      const fetchedServices: Service[] = [];
+      querySnapshot.forEach((doc) => {
+        fetchedServices.push({ id: doc.id, ...doc.data() } as Service);
+      });
+
+      // Fiyata göre sırala (Opsiyonel)
+      fetchedServices.sort((a, b) => a.price - b.price);
+      
+      setServices(fetchedServices);
+    } catch (error) {
+      console.error("Hizmetler çekilemedi:", error);
+    } finally {
+      setServicesLoading(false);
+    }
+  };
 
   const generateNextDays = (): DayType[] => {
     const daysArray: DayType[] = [];
@@ -74,20 +95,17 @@ export default function DetailScreen() {
     return daysArray;
   };
 
-  // HİZMET SEÇME/KALDIRMA MANTIĞI
   const toggleService = (serviceId: string) => {
     if (selectedServices.includes(serviceId)) {
-      // Zaten seçiliyse çıkar
       setSelectedServices(prev => prev.filter(id => id !== serviceId));
     } else {
-      // Seçili değilse ekle
       setSelectedServices(prev => [...prev, serviceId]);
     }
   };
 
-  // TOPLAM TUTARI HESAPLA
+  // Dinamik listeden fiyat hesaplama
   const totalPrice = selectedServices.reduce((total, serviceId) => {
-    const service = SERVICES.find(s => s.id === serviceId);
+    const service = services.find(s => s.id === serviceId);
     return total + (service ? service.price : 0);
   }, 0);
 
@@ -110,8 +128,7 @@ export default function DetailScreen() {
     setLoading(true); 
 
     try {
-      // Seçilen hizmetlerin isimlerini alalım
-      const serviceNames = selectedServices.map(id => SERVICES.find(s => s.id === id)?.name).join(", ");
+      const serviceNames = selectedServices.map(id => services.find(s => s.id === id)?.name).join(", ");
 
       const randevuVerisi = {
         userId: user.uid,          
@@ -120,8 +137,8 @@ export default function DetailScreen() {
         berberName: item.name,     
         date: selectedDay.fullDate, 
         time: selectedTime,
-        services: serviceNames, // Örn: "Saç Kesimi, Sakal Kesimi"
-        totalPrice: totalPrice, // Örn: 300
+        services: serviceNames, 
+        totalPrice: totalPrice, 
         status: 'pending',
         createdAt: new Date()      
       };
@@ -156,27 +173,34 @@ export default function DetailScreen() {
           </View>
           <Text style={styles.location}>📍 {item.location}</Text>
 
-          {/* --- HİZMET SEÇİMİ --- */}
+          {/* --- HİZMET SEÇİMİ (DİNAMİK) --- */}
           <Text style={styles.sectionTitle}>Hizmet Seç</Text>
-          <View style={styles.servicesContainer}>
-            {SERVICES.map((service) => {
-              const isSelected = selectedServices.includes(service.id);
-              return (
-                <TouchableOpacity 
-                  key={service.id} 
-                  style={[styles.serviceCard, isSelected && styles.selectedServiceCard]}
-                  onPress={() => toggleService(service.id)}
-                >
-                  <View>
-                    <Text style={[styles.serviceName, isSelected && styles.selectedText]}>{service.name}</Text>
-                    <Text style={[styles.serviceDuration, isSelected && styles.selectedText]}>{service.duration} dk</Text>
-                  </View>
-                  <Text style={[styles.servicePrice, isSelected && styles.selectedText]}>{service.price} ₺</Text>
-                  {isSelected && <Ionicons name="checkmark-circle" size={20} color="#fff" style={{position: 'absolute', top: 5, right: 5}} />}
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          
+          {servicesLoading ? (
+            <ActivityIndicator size="small" color="#333" />
+          ) : services.length === 0 ? (
+            <Text style={{color: '#999', fontStyle: 'italic'}}>Bu berber henüz hizmet eklememiş.</Text>
+          ) : (
+            <View style={styles.servicesContainer}>
+              {services.map((service) => {
+                const isSelected = selectedServices.includes(service.id);
+                return (
+                  <TouchableOpacity 
+                    key={service.id} 
+                    style={[styles.serviceCard, isSelected && styles.selectedServiceCard]}
+                    onPress={() => toggleService(service.id)}
+                  >
+                    <View>
+                      <Text style={[styles.serviceName, isSelected && styles.selectedText]}>{service.name}</Text>
+                      <Text style={[styles.serviceDuration, isSelected && styles.selectedText]}>{service.duration} dk</Text>
+                    </View>
+                    <Text style={[styles.servicePrice, isSelected && styles.selectedText]}>{service.price} ₺</Text>
+                    {isSelected && <Ionicons name="checkmark-circle" size={20} color="#fff" style={{position: 'absolute', top: 5, right: 5}} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
 
           {/* --- TARİH & SAAT --- */}
           <Text style={styles.sectionTitle}>Tarih Seç</Text>
@@ -248,7 +272,6 @@ const styles = StyleSheet.create({
   location: { fontSize: 16, color: '#666', marginTop: 5, marginBottom: 20 },
   sectionTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 10, marginTop: 10, color: '#333' },
   
-  // Hizmet Kartları
   servicesContainer: { gap: 10, marginBottom: 20 },
   serviceCard: { 
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
@@ -259,7 +282,6 @@ const styles = StyleSheet.create({
   serviceDuration: { fontSize: 12, color: '#666', marginTop: 2 },
   servicePrice: { fontSize: 16, fontWeight: 'bold', color: '#4CAF50' },
   
-  // Tarih & Saat
   daysScroll: { marginBottom: 20 },
   dayCard: { width: 60, height: 70, borderRadius: 12, backgroundColor: '#f0f0f0', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   selectedDayCard: { backgroundColor: '#333' },
@@ -271,7 +293,6 @@ const styles = StyleSheet.create({
   selectedTimeCard: { backgroundColor: '#333', borderColor: '#333' },
   timeText: { color: '#333' },
   
-  // Footer
   footer: { 
     padding: 20, borderTopWidth: 1, borderTopColor: '#eee', backgroundColor: '#fff',
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'
